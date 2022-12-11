@@ -1,0 +1,105 @@
+# Importing Tweepy and time
+import tweepy
+import time
+import boto3
+import json
+import uuid
+
+# Credentials (INSERT YOUR KEYS AND TOKENS IN THE STRINGS BELOW)
+api_key = "Z6vebs3c8aDZMiJPNyQHlAPA5"
+api_secret = "RgKIwqMU0TzmQhF5jyyAH4aLaFNrDz0KAQcdWxD0Qrta9O1CGl"
+bearer_token = r"AAAAAAAAAAAAAAAAAAAAALnsjQEAAAAAl8FN2ZyoI%2FU3KZj5F4NmD2aapjw%3DBBaGwkoD9LbOSxUEArw57aAQcJ0fP4OoHHirxdyT2OUHEkqR2B"
+access_token = "16436118-EqTRkayOuw81nGLNZX5VUHQoUZqCOzFMAkUmhpn82"
+access_token_secret = "iKEr3LSBqDuImPK1LmnErZXbvwgIebSA4Vp8HmAImXRSw"
+kinesis_stream_name = "octank-datastream"
+
+
+# Gaining access and connecting to Twitter API using Credentials
+client = tweepy.Client(bearer_token, api_key, api_secret, access_token, access_token_secret)
+
+auth = tweepy.OAuth1UserHandler(api_key, api_secret, access_token, access_token_secret)
+api = tweepy.API(auth)
+
+search_terms = ["#OctankLive"]
+
+# Bot searches for tweets containing certain keywords
+class MyStream(tweepy.StreamingClient):
+
+    # This function gets called when the stream is working
+    def on_connect(self):
+        print("Connected")
+
+
+    # This function gets called when a tweet passes the stream
+    def on_tweet(self, tweet):
+        # Displaying tweet in console
+        if tweet.referenced_tweets == None:
+            print(tweet.data)
+            user=client.get_user(id=tweet.author_id)
+            print(user.data.username)
+            data = {
+                'created':tweet.created_at,
+                'id': tweet.id,
+                'place':'London',
+                'placecountry': 'United Kingdom',
+                'placename':'London',
+                'retweetcount':0,
+                'source': 'twitter',eifjcbbucrtjgkvuunekebrlceedjcngdjeeljednhki
+
+                'text': tweet.text
+            }
+            
+            #response = kinesis_client.put_record(StreamName=kinesis_stream_name,
+            #                                        Data=json.dumps(data),
+            #                                        PartitionKey=partition_key)
+
+            #print('Status: ' + json.dumps(response['ResponseMetadata']['HTTPStatusCode']))
+            # Delay between tweets
+            #time.sleep(0.5)'''
+            
+
+    def on_data(self, data):
+        data_obj = json.loads(data.decode('utf8'))
+        print(data_obj)
+        user = data_obj['includes']['users']
+        place = data_obj['includes']['places']
+        data = {
+            'created':data_obj['data']['created_at'],
+            'id':data_obj['data']['id'],
+            'place':place[0]['full_name'],
+            'placecountry': place[0]['country'],
+            'placename':place[0]['name'],
+            'retweetcount':0,
+            'source': 'twitter',
+            'username': user[0]['username'],
+            'text': data_obj['data']['text'],
+            'userid': user[0]['username'] + '@example.com'
+        }
+        response = kinesis_client.put_record(StreamName=kinesis_stream_name,
+                                                    Data=json.dumps(data),
+                                                    PartitionKey=partition_key)
+
+        print('Status: ' + json.dumps(response['ResponseMetadata']['HTTPStatusCode']))
+        return True
+
+# Creating Stream object
+stream = MyStream(bearer_token=bearer_token)
+
+# Adding terms to search rules
+# It's important to know that these rules don't get deleted when you stop the
+# program, so you'd need to use stream.get_rules() and stream.delete_rules()
+# to change them, or you can use the optional parameter to stream.add_rules()
+# called dry_run (set it to True, and the rules will get deleted after the bot
+# stopped running).
+for term in search_terms:
+    stream.add_rules(tweepy.StreamRule(term))
+
+
+session = boto3.Session()
+kinesis_client = session.client('kinesis')
+partition_key = str(uuid.uuid4())
+# Starting stream
+stream.filter(tweet_fields=["referenced_tweets","created_at"], 
+                user_fields = ["username"],
+                place_fields=["place_type", "geo", "country", "name"],
+                expansions = ["author_id", "geo.place_id"])
